@@ -56,10 +56,12 @@ dormont <- get_map(location= "3263 Waltham Ave, Dormont, PA", crop = F,
                 zoom=17)
 
 dormont <- ggmap(dormont)
+dormont
 
 
 ours <- parcel_geometry %>% 
-  filter(munidesc == "Dormont") %>% 
+  filter(munidesc == "Dormont",
+         price < 400000) %>% 
   mutate(ours = case_when(propertyaddressstreet == "WALTHAM" & propertyhousenum == 3263 ~ "ours",
                           propertyaddressstreet != "WALTHAM" | propertyhousenum != 3263 ~ "not_ours"))
 
@@ -74,10 +76,9 @@ ours %>%
   count(ours, sort = TRUE)
 
 ours %>% 
-  ggplot(aes(fill = price, color = ours)) +
+  ggplot(aes(fill = price)) +
   geom_sf() +
-  scale_fill_viridis_c() +
-  scale_color_manual(values = c("red", "white"))
+  scale_fill_viridis_c()
 
 ours %>% 
   ggplot(aes(X, Y, color = ours)) +
