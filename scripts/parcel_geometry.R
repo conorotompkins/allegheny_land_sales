@@ -19,7 +19,8 @@ parcels %>%
   geom_point()
 
 plot <- parcels %>% 
-  filter(valid) %>% 
+  filter(valid,
+         CALCACREAG > 50) %>% 
   ggplot() +
   geom_sf(aes(fill = CALCACREAG)) +
   scale_fill_viridis_c()
