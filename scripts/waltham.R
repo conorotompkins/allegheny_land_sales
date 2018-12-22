@@ -12,20 +12,7 @@ theme_set(theme_bw())
 
 options(scipen = 999, digits = 4)
 
-df %>% 
-  count(parid, sort = TRUE)
 
-df %>% 
-  count(propertyzip, sort = TRUE)
-
-df %>% 
-  count(propertycity, sort = TRUE)
-
-df %>% 
-  count(munidesc, sort = TRUE)
-
-df %>% 
-  count(saledesc, sort = TRUE)
 
 #df %>% 
 #  count(saledesc, saledate) %>% 
