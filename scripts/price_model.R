@@ -1,49 +1,33 @@
 library(tidyverse)
 library(janitor)
 library(broom)
-library(sf)
-library(scales)
+library(modelr)
 
 options(scipen = 999, digits = 4)
 
 theme_set(theme_bw())
 
-source("scripts/load_parcel_sales.R")
-source("scripts/load_parcel_geometry.R")
+df <- read_csv("data/parcel_exploratory.csv", progress = FALSE)
 
-parcel_geometry <- parcels %>% 
-  inner_join(df, by = c("PIN" = "parid"))
+fit <- lm(price ~ calcacreag + instrtypdesc + schooldesc, data = df)
 
-centroids <- parcel_geometry %>% 
-  st_centroid() %>% 
-  st_coordinates() %>% 
-  as_tibble()
-
-parcel_geometry <- bind_cols(parcel_geometry, centroids) %>% 
-  clean_names()
-
-parcel_exploratory <- parcel_geometry %>% 
-  st_set_geometry(NULL)
-
-
-fit <- lm(price ~ shape_area + instrtypdesc + schooldesc, data = parcel_geometry)
 model <- fit %>%
   tidy() %>% 
   arrange(desc(estimate))
+model
 
 fit %>% 
   glance()
 
-parcel_geometry %>% 
-  st_set_geometry(NULL) %>% 
-  augment(fit)
+df_pred <- fit %>% 
+  augment(df)
 
-fit %>% 
-  augment(parcel_geometry)
+df_pred %>% 
+  ggplot(aes(price, .fitted)) +
+  geom_point()
 
-#parcel_geometry %>% 
-#  ggplot(aes(x, y, color = price)) +
-#  #geom_point() +
-#  geom_density_2d()
+rmse(fit, df)
 
+sqrt(mean(error^2))
+?rmse
 
