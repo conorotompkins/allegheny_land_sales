@@ -1,6 +1,7 @@
 library(tidyverse)
 library(scales)
 library(caret)
+library(broom)
 
 options(scipen = 999, digits = 5)
 
@@ -60,3 +61,55 @@ model <- train(
 )
 model
 varImp(model)
+
+mod <- lm(saleprice_asmt_log10 ~ ., df)
+
+mod %>% 
+  tidy() %>% 
+  filter(abs(estimate) > .1) %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(term, estimate)) +
+  geom_point() +
+  coord_flip()
+
+df_pred <- mod %>% 
+  augment()
+
+
+df_pred %>% 
+  ggplot(aes(.resid)) +
+  geom_density()
+
+df_pred %>% 
+  ggplot(aes(saleprice_asmt_log10, .resid)) +
+  geom_jitter(alpha = .1)
+
+df_pred %>% 
+  ggplot(aes(saleprice_asmt_log10, .fitted)) +
+  geom_jitter(alpha = .1)
+
+df_pred %>% 
+  select_if(is.numeric) %>% 
+  select(-c(.hat:.std.resid), -c(.se.fit, .fitted)) %>% 
+  gather(measure, metric, -.resid) %>% 
+  ggplot(aes(.resid, metric)) +
+  geom_jitter(alpha = .1) +
+  facet_wrap(~measure, scales = "free_y")
+
+df_pred %>% 
+  select(extfinish_desc_asmt:conditiondesc_asmt, .resid) %>% 
+  gather(measure, metric, -.resid) %>% 
+  ggplot(aes(metric, .resid)) +
+  geom_jitter(alpha = .1) +
+  facet_wrap(~measure, scales = "free") +
+  coord_flip()
+
+df_pred %>% 
+  select(extfinish_desc_asmt:conditiondesc_asmt, .resid) %>% 
+  gather(measure, metric, -.resid) %>% 
+  ggplot(aes(metric, .resid)) +
+  geom_jitter(alpha = .01) +
+  facet_wrap(~measure, scales = "free") +
+  coord_flip()
+
+
