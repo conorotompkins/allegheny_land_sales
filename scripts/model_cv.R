@@ -37,20 +37,23 @@ df <- df %>%
          yearblt_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, 
          extfinish_desc_asmt, roofdesc_asmt, basementdesc_asmt, heatingcoolingdesc_asmt,
          gradedesc_asmt, conditiondesc_asmt, saleprice_asmt_log10) %>% 
+  select_if(is.numeric) %>% 
   na.omit()
+
 
 glimpse(df)
 
 
 # Prepare the initial split object
 df_split <- initial_split(df, prop = .75)
-
+df_split
 # Extract the training dataframe
 training_data <- training(df_split)
+training_data
 
 # Extract the testing dataframe
 testing_data <- testing(df_split)
-
+testing_data
 # Calculate the dimensions of both training_data and testing_data
 dim(training_data)
 dim(testing_data)
@@ -74,7 +77,7 @@ head(cv_data)
 # Build a model using the train data for each fold of the cross validation
 cv_models_lm <- cv_data %>% 
   mutate(model = map(train, ~lm(formula = saleprice_asmt_log10 ~ ., data = .x)))
-
+cv_models_lm
 #problem with factors split across training/validation
 #https://stats.stackexchange.com/questions/235764/new-factors-levels-not-present-in-training-data
 
@@ -86,62 +89,89 @@ cv_prep_lm <- cv_models_lm %>%
     validate_predicted = map2(.x = model, .y = validate, ~predict(.x, .y))
   )
 
+head(cv_prep_lm)
+
 library(Metrics)
 # Calculate the mean absolute error for each validate fold       
 cv_eval_lm <- cv_prep_lm %>% 
-  mutate(validate_mae = map2_dbl(___, ___, ~mae(actual = .x, predicted = .y)))
+  mutate(validate_mae = map2_dbl(validate_actual, validate_predicted, ~mae(actual = .x, predicted = .y)))
+
+head(cv_eval_lm)
 
 # Print the validate_mae column
-cv_eval_lm$___
+cv_eval_lm$validate_mae
 
 # Calculate the mean of validate_mae column
-___
+mean(cv_eval_lm$validate_mae)
+
+cv_prep_lm %>% 
+  unnest(validate_actual, validate_predicted) %>% 
+  ggplot(aes(validate_actual, validate_predicted)) +
+  geom_jitter(alpha = .1) +
+  geom_smooth(method = "lm") +
+  geom_abline() +
+  scale_x_continuous(limits = c(2, 7)) +
+  scale_y_continuous(limits = c(2, 7)) +
+  coord_equal()
+
+#calculate fit of test df
+head(testing_data)
+
+model <- lm(saleprice_asmt_log10 ~ ., data = training_data)
+
+rmse(model, training_data)
+test_fit <- glance(model)
+test_coef <- tidy(model)
+test_augment <- augment(model, newdata = testing_data)
+
+test_fit
+test_coef %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(term, estimate)) +
+  geom_point() +
+  coord_flip()
+
+test_augment %>% 
+  ggplot(aes(saleprice_asmt_log10, .fitted)) +
+  geom_jitter(alpha = .1) +
+  geom_smooth(method = "lm") +
+  geom_abline() +
+  scale_x_continuous(limits = c(2, 7)) +
+  scale_y_continuous(limits = c(2, 7)) +
+  coord_equal()
+
+test_augment %>% 
+  mutate(.resid = saleprice_asmt_log10 - .fitted) %>% 
+  ggplot(aes(.resid)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = 2)
+
+test_augment %>% 
+  mutate(.resid = saleprice_asmt_log10 - .fitted) %>% 
+  ggplot(aes(.resid, saleprice_asmt_log10)) +
+  geom_jitter(alpha = .1)
 
 
 
 
+cv_eval_lm %>% 
+  unnest(model)
+
+cv_eval_lm %>% 
+  mutate(coef = map(model, ~tidy(.x))) %>% 
+  unnest(coef)
+
+cv_eval_lm %>% 
+  mutate(fit = map(model, ~glance(.x))) %>% 
+  unnest(fit) %>% 
+  summarize(mean = mean(adj.r.squared))
 
 
-# Build a random forest model for each fold
-cv_models_rf <- cv_data %>% 
-  mutate(model = map(___, ~ranger(formula = ___, data = ___,
-                                  num.trees = 100, seed = 42)))
+cv_eval_lm %>% 
+  mutate(augmented = map(model, ~augment(.x))) %>% 
+  unnest(augmented) %>% 
+  ggplot(aes(saleprice_asmt_log10, .fitted)) +
+  geom_jitter(alpha = .1)
 
-# Generate predictions using the random forest model
-cv_prep_rf <- cv_models_rf %>% 
-  mutate(validate_predicted = map2(.x = ___, .y = ___, ~predict(.x, .y)$predictions))
-
-library(ranger)
-
-# Calculate validate MAE for each fold
-cv_eval_rf <- cv_prep_rf %>% 
-  mutate(validate_mae = map2_dbl(___, ___, ~mae(actual = .x, predicted = .y)))
-
-# Print the validate_mae column
-___
-
-# Calculate the mean of validate_mae column
-___
-
-# Prepare for tuning your cross validation folds by varying mtry
-cv_tune <- cv_data %>% 
-  crossing(mtry = ___:___) 
-
-# Build a model for each fold & mtry combination
-cv_model_tunerf <- cv_tune %>% 
-  mutate(model = map2(.x = ___, .y = ___, ~ranger(formula = life_expectancy~., 
-                                                  data = .x, mtry = .y, 
-                                                  num.trees = 100, seed = 42)))
-
-# Build the model using all training data and the best performing parameter
-best_model <- ranger(formula = ___, data = ___,
-                     mtry = ___, num.trees = 100, seed = 42)
-
-# Prepare the test_actual vector
-test_actual <- testing_data$___
-
-# Predict life_expectancy for the testing_data
-test_predicted <- predict(___, ___)$predictions
-
-# Calculate the test MAE
-mae(___, ___)
+cv_eval_lm %>% 
+  unnest(validate)
