@@ -12,6 +12,17 @@ theme_set(theme_bw())
 
 source("scripts/load_parcel_sales_combined.R")
 
+#create grade vectors
+grades_standard <- c("average -", "average", "average +",
+                     "good -", "good", "good +",
+                     "very good -", "very good", "very good +")
+
+grades_below_average_or_worse <- c("poor -", "poor", "poor +",
+                                   "below average -", "below average", "below average +")
+
+grades_excellent_or_better <- c("excellent -", "excellent", "excellent +",
+                                "highest cost -", "highest cost", "highest cost +")
+
 df <- df %>% 
   filter(classdesc_asmt == "RESIDENTIAL",
          saleprice_asmt > 100,
@@ -26,7 +37,15 @@ df <- df %>%
          bsmtgarage_asmt, finishedlivingarea_asmt_log10, lotarea_asmt_log10, price_sales_log10, 
          saleprice_asmt_log10, saledate_sales) %>% 
   mutate(usedesc_asmt = fct_lump(usedesc_asmt, n = 5),
-         styledesc_asmt = fct_lump(styledesc_asmt, n = 10))
+         styledesc_asmt = fct_lump(styledesc_asmt, n = 10),
+         #clean up and condense gradedesc_asmt
+         gradedesc_asmt = str_to_lower(gradedesc_asmt),
+         gradedesc_asmt = case_when(gradedesc_asmt %in% grades_below_average_or_worse ~ "below average + or worse",
+                                    gradedesc_asmt %in% grades_excellent_or_better ~ "excellent - or better",
+                                    gradedesc_asmt %in% grades_standard ~ gradedesc_asmt),
+         gradedesc_asmt = fct_relevel(gradedesc_asmt, c("below average + or worse", "average -", "average", "average +",
+                                                        "good -", "good", "good +",
+                                                        "very good -", "very good", "very good +", "excellent - or better")))
 
 df <- df %>% 
   mutate_if(is.character, replace_na, "missing") %>% 
@@ -36,8 +55,9 @@ glimpse(df)
 
 
 df <- df %>% 
-  select(munidesc_asmt, usedesc_asmt, styledesc_asmt, finishedlivingarea_asmt_log10, lotarea_asmt_log10,
-         yearblt_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, saleprice_asmt_log10) %>% 
+  select(munidesc_asmt, usedesc_asmt, styledesc_asmt, conditiondesc_asmt, gradedesc_asmt,
+         finishedlivingarea_asmt_log10, lotarea_asmt_log10, yearblt_asmt, bedrooms_asmt, 
+         fullbaths_asmt, halfbaths_asmt, saleprice_asmt_log10) %>% 
   #select_if(is.numeric) %>% 
   na.omit()
 
@@ -192,3 +212,4 @@ test_augment %>%
   ggplot(aes(.resid, saleprice_asmt_log10)) +
   geom_jitter(alpha = .1) +
   geom_vline(xintercept = 0, color = "red", linetype = 2)
+
