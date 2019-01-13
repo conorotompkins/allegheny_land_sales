@@ -15,5 +15,5 @@ df <- read_csv("data/parcel_data.csv", progress = FALSE) %>%
          gradedesc_asmt, conditiondesc_asmt, stories_asmt, totalrooms_asmt, bedrooms_asmt,
          fullbaths_asmt, halfbaths_asmt, heatingcoolingdesc_asmt, fireplaces_asmt, 
          bsmtgarage_asmt, finishedlivingarea_asmt, finishedlivingarea_asmt_log10,
-         lotarea_asmt, lotarea_asmt_log10, saledate_sales, price_sales, price_sales_log10, 
+         lotarea_asmt, lotarea_asmt_log10, saledate_sales, price_sales, price_sales_log10,
          saleprice_asmt, saleprice_asmt_log10)
