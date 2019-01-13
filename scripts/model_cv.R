@@ -24,7 +24,9 @@ df <- df %>%
          heatingcoolingdesc_asmt, gradedesc_asmt, conditiondesc_asmt, stories_asmt, 
          totalrooms_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, fireplaces_asmt, 
          bsmtgarage_asmt, finishedlivingarea_asmt_log10, lotarea_asmt_log10, price_sales_log10, 
-         saleprice_asmt_log10, saledate_sales)
+         saleprice_asmt_log10, saledate_sales) %>% 
+  mutate(usedesc_asmt = fct_lump(usedesc_asmt, n = 5),
+         styledesc_asmt = fct_lump(styledesc_asmt, n = 10))
 
 df <- df %>% 
   mutate_if(is.character, replace_na, "missing") %>% 
@@ -34,35 +36,31 @@ glimpse(df)
 
 
 df <- df %>% 
-  select(finishedlivingarea_asmt_log10, lotarea_asmt_log10,
-         yearblt_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, 
-         extfinish_desc_asmt, roofdesc_asmt, basementdesc_asmt, heatingcoolingdesc_asmt,
-         gradedesc_asmt, conditiondesc_asmt, saleprice_asmt_log10) %>% 
-  select_if(is.numeric) %>% 
+  select(munidesc_asmt, usedesc_asmt, styledesc_asmt, finishedlivingarea_asmt_log10, lotarea_asmt_log10,
+         yearblt_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, saleprice_asmt_log10) %>% 
+  #select_if(is.numeric) %>% 
   na.omit()
 
-
 glimpse(df)
-
 
 # Prepare the initial split object
 df_split <- initial_split(df, prop = .75)
 df_split
 # Extract the training dataframe
-training_data <- training(df_split)
-training_data
+training_data_full <- training(df_split)
+training_data_full
 
 # Extract the testing dataframe
 testing_data <- testing(df_split)
 testing_data
 # Calculate the dimensions of both training_data and testing_data
-dim(training_data)
+dim(training_data_full)
 dim(testing_data)
 
 set.seed(42)
 
 # Prepare the dataframe containing the cross validation partitions
-cv_split <- vfold_cv(training_data, v = 5)
+cv_split <- vfold_cv(training_data_full, v = 5)
 
 cv_data <- cv_split %>% 
   mutate(
@@ -92,10 +90,9 @@ cv_prep_lm <- cv_models_lm %>%
 
 head(cv_prep_lm)
 
-
 # Calculate the mean absolute error for each validate fold       
 cv_eval_lm <- cv_prep_lm %>% 
-  mutate(validate_mae = map2_dbl(validate_actual, validate_predicted, ~mae(actual = .x, predicted = .y)),
+  mutate(validate_mae = map2_dbl(validate_actual, validate_predicted, ~Metrics::mae(actual = .x, predicted = .y)),
          validate_rmse = map2_dbl(model, validate, modelr::rmse))
 
 cv_eval_lm %>% 
@@ -110,7 +107,41 @@ cv_eval_lm$validate_mae
 # Calculate the mean of validate_mae column
 mean(cv_eval_lm$validate_mae)
 
-#visualize model on training data
+#glance at statistics for validate data
+cv_prep_lm %>% 
+  mutate(glance_validate = map(model, ~glance(.x))) %>% 
+  unnest(glance_validate)
+
+#create dfs for train_data_small and validate_data
+train_data_small <- cv_prep_lm %>% 
+  unnest(train) %>% 
+  select(-id)
+
+validate_data <- cv_prep_lm %>% 
+  unnest(validate)
+
+#create model object
+model <- lm(saleprice_asmt_log10 ~ ., data = train_data_small)
+
+#visualize model on small training data
+tidy_validate <- tidy(model) %>% 
+  arrange(-estimate)
+
+#10th ward is the base factor for muni_desc term
+tidy_validate %>% 
+  filter(str_detect(term, "10th"))
+
+tidy_validate %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(term, estimate)) +
+  geom_point() +
+  coord_flip()
+
+#visualize model on validate data
+augment_validate <- augment(model, newdata = validate_data) %>% 
+  mutate(.resid = saleprice_asmt_log10 - .fitted)
+
 cv_prep_lm %>% 
   unnest(validate_actual, validate_predicted) %>% 
   ggplot(aes(validate_actual, validate_predicted)) +
@@ -121,16 +152,12 @@ cv_prep_lm %>%
   scale_y_continuous(limits = c(2, 7)) +
   coord_equal()
 
-model <- lm(saleprice_asmt_log10 ~ ., data = training_data)
-
-augment_train <- augment(model)
-
-augment_train %>% 
+augment_validate %>% 
   ggplot(aes(.resid)) +
   geom_density() +
   geom_vline(xintercept = 0, color = "red", linetype = 2)
 
-augment_train %>% 
+augment_validate %>% 
   ggplot(aes(.resid, saleprice_asmt_log10)) +
   geom_jitter(alpha = .1) +
   geom_vline(xintercept = 0, color = "red", linetype = 2)
