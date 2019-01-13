@@ -2,8 +2,9 @@ library(tidyverse)
 library(scales)
 library(caret)
 library(broom)
-library(ranger)
+library(modelr)
 library(rsample)
+library(Metrics)
 
 options(scipen = 999, digits = 5)
 
@@ -91,10 +92,15 @@ cv_prep_lm <- cv_models_lm %>%
 
 head(cv_prep_lm)
 
-library(Metrics)
+
 # Calculate the mean absolute error for each validate fold       
 cv_eval_lm <- cv_prep_lm %>% 
-  mutate(validate_mae = map2_dbl(validate_actual, validate_predicted, ~mae(actual = .x, predicted = .y)))
+  mutate(validate_mae = map2_dbl(validate_actual, validate_predicted, ~mae(actual = .x, predicted = .y)),
+         validate_rmse = map2_dbl(model, validate, modelr::rmse))
+
+cv_eval_lm %>% 
+  mutate(fit = map(model, ~glance(.x))) %>% 
+  unnest(fit)
 
 head(cv_eval_lm)
 
@@ -104,6 +110,7 @@ cv_eval_lm$validate_mae
 # Calculate the mean of validate_mae column
 mean(cv_eval_lm$validate_mae)
 
+#visualize model on training data
 cv_prep_lm %>% 
   unnest(validate_actual, validate_predicted) %>% 
   ggplot(aes(validate_actual, validate_predicted)) +
@@ -114,22 +121,29 @@ cv_prep_lm %>%
   scale_y_continuous(limits = c(2, 7)) +
   coord_equal()
 
-#calculate fit of test df
-head(testing_data)
-
 model <- lm(saleprice_asmt_log10 ~ ., data = training_data)
 
-rmse(model, training_data)
-test_fit <- glance(model)
-test_coef <- tidy(model)
-test_augment <- augment(model, newdata = testing_data)
+augment_train <- augment(model)
 
-test_fit
-test_coef %>% 
-  mutate(term = fct_reorder(term, estimate)) %>% 
-  ggplot(aes(term, estimate)) +
-  geom_point() +
-  coord_flip()
+augment_train %>% 
+  ggplot(aes(.resid)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = 2)
+
+augment_train %>% 
+  ggplot(aes(.resid, saleprice_asmt_log10)) +
+  geom_jitter(alpha = .1) +
+  geom_vline(xintercept = 0, color = "red", linetype = 2)
+
+#calculate fit of test data
+head(testing_data)
+
+modelr::rmse(model, testing_data)
+modelr::mae(model, testing_data)
+modelr::rsquare(model, testing_data)
+
+#visualize model on test data
+test_augment <- augment(model, newdata = testing_data)
 
 test_augment %>% 
   ggplot(aes(saleprice_asmt_log10, .fitted)) +
@@ -149,29 +163,5 @@ test_augment %>%
 test_augment %>% 
   mutate(.resid = saleprice_asmt_log10 - .fitted) %>% 
   ggplot(aes(.resid, saleprice_asmt_log10)) +
-  geom_jitter(alpha = .1)
-
-
-
-
-cv_eval_lm %>% 
-  unnest(model)
-
-cv_eval_lm %>% 
-  mutate(coef = map(model, ~tidy(.x))) %>% 
-  unnest(coef)
-
-cv_eval_lm %>% 
-  mutate(fit = map(model, ~glance(.x))) %>% 
-  unnest(fit) %>% 
-  summarize(mean = mean(adj.r.squared))
-
-
-cv_eval_lm %>% 
-  mutate(augmented = map(model, ~augment(.x))) %>% 
-  unnest(augmented) %>% 
-  ggplot(aes(saleprice_asmt_log10, .fitted)) +
-  geom_jitter(alpha = .1)
-
-cv_eval_lm %>% 
-  unnest(validate)
+  geom_jitter(alpha = .1) +
+  geom_vline(xintercept = 0, color = "red", linetype = 2)
