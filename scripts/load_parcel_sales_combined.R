@@ -1,6 +1,7 @@
 library(tidyverse)
 library(janitor)
 
+#read in data
 df <- read_csv("data/parcel_data.csv", progress = FALSE) %>% 
   clean_names() %>% 
   select(-geom) %>% 
