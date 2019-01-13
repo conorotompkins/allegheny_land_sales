@@ -21,7 +21,7 @@ df <- df %>%
          gradedesc_asmt, conditiondesc_asmt, stories_asmt, totalrooms_asmt, bedrooms_asmt,
          fullbaths_asmt, halfbaths_asmt, heatingcoolingdesc_asmt, fireplaces_asmt, 
          bsmtgarage_asmt, finishedlivingarea_asmt, finishedlivingarea_asmt_log10,
-         lotarea_asmt, lotarea_asmt_log10, saledate_sales, price_sales, price_sales_log10, 
+         lotarea_asmt, lotarea_asmt_log10, saledate_sales, price_sales, price_sales_log10,
          saleprice_asmt, saleprice_asmt_log10)
   
 glimpse(df)
@@ -36,11 +36,16 @@ df %>%
   count(schooldesc_asmt, sort = TRUE)
 
 df %>%
-  count(neighdesc_asmt, sort = TRUE)
+  count(neighdesc_asmt, sort = TRUE) %>% 
+  View()
 
 df %>% 
   count(usedesc_asmt, sort = TRUE) %>% 
   View()
+
+df %>%
+  mutate(usedesc_asmt = fct_lump(usedesc_asmt, n = 5)) %>% 
+  count(usedesc_asmt, sort = TRUE)
 
 df %>% 
   count(homesteadflag_asmt, sort = TRUE)
@@ -52,6 +57,9 @@ df %>%
   count(styledesc_asmt, sort = TRUE) %>% 
   View()
 
+df %>% 
+  mutate(styledesc_asmt = fct_lump(styledesc_asmt, n = 10)) %>% 
+  count(styledesc_asmt, sort = TRUE)
 
 df %>%
   count(yearblt_asmt, sort = TRUE)
