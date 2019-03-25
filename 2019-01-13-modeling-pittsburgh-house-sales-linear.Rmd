@@ -1,0 +1,299 @@
+---
+title: Modeling Pittsburgh House Sales - Linear
+author: Conor Tompkins
+date: '2019-01-13'
+slug: modeling-pittsburgh-house-sales-linear
+categories: []
+tags: []
+runtime: shiny
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE, 
+                      warning = FALSE)
+```
+In this post I will be modeling house (land parcel) sales in Pittsburgh. The data is from the WPRDC's [Parcels n'at](http://tools.wprdc.org/parcels-n-at/#) dashboard.
+
+The goal is to use linear modeling to predict the sale price of a house using features of the house and the property. 
+
+This code sets up the environment and loads the libraries I will use.
+```{r}
+#load libraries
+library(tidyverse)
+library(scales)
+library(caret)
+library(broom)
+library(modelr)
+library(rsample)
+library(janitor)
+
+#set up environment
+options(scipen = 999, digits = 5)
+
+theme_set(theme_bw())
+```
+This reads the data and engineers some features.
+```{r}
+#read in data
+df <- read_csv("parcel_data.csv", progress = FALSE) %>% 
+  clean_names() %>% 
+  select(-geom) %>% 
+  mutate(munidesc_asmt = str_replace(munidesc_asmt, " - PITTSBURGH", "")) %>% 
+  mutate(finishedlivingarea_asmt_log10 = log10(finishedlivingarea_asmt),
+         lotarea_asmt_log10 = log10(lotarea_asmt),
+         price_sales_log10 = log10(price_sales),
+         saleprice_asmt_log10 = log10(saleprice_asmt)) %>% 
+  select(pin, classdesc_asmt, munidesc_asmt, schooldesc_asmt, neighdesc_asmt, taxdesc_asmt,
+         usedesc_asmt, homesteadflag_asmt, farmsteadflag_asmt, styledesc_asmt,
+         yearblt_asmt, extfinish_desc_asmt, roofdesc_asmt,  basementdesc_asmt,
+         gradedesc_asmt, conditiondesc_asmt, stories_asmt, totalrooms_asmt, bedrooms_asmt,
+         fullbaths_asmt, halfbaths_asmt, heatingcoolingdesc_asmt, fireplaces_asmt, 
+         bsmtgarage_asmt, finishedlivingarea_asmt, finishedlivingarea_asmt_log10,
+         lotarea_asmt, lotarea_asmt_log10, saledate_sales, price_sales, price_sales_log10,
+         saleprice_asmt, saleprice_asmt_log10)
+
+#create grade vectors
+grades_standard <- c("average -", "average", "average +",
+                     "good -", "good", "good +",
+                     "very good -", "very good", "very good +")
+
+grades_below_average_or_worse <- c("poor -", "poor", "poor +",
+                                   "below average -", "below average", "below average +")
+
+grades_excellent_or_better <- c("excellent -", "excellent", "excellent +",
+                                "highest cost -", "highest cost", "highest cost +")
+
+#subset data and engineer features
+df <- df %>% 
+  filter(classdesc_asmt == "RESIDENTIAL",
+         saleprice_asmt > 100,
+         str_detect(munidesc_asmt, "Ward"),
+         finishedlivingarea_asmt > 0,
+         lotarea_asmt > 0) %>% 
+  select(pin, munidesc_asmt, schooldesc_asmt, neighdesc_asmt, taxdesc_asmt,
+         usedesc_asmt, homesteadflag_asmt, farmsteadflag_asmt, styledesc_asmt,
+         yearblt_asmt, extfinish_desc_asmt, roofdesc_asmt,  basementdesc_asmt, 
+         heatingcoolingdesc_asmt, gradedesc_asmt, conditiondesc_asmt, stories_asmt, 
+         totalrooms_asmt, bedrooms_asmt, fullbaths_asmt, halfbaths_asmt, fireplaces_asmt, 
+         bsmtgarage_asmt, finishedlivingarea_asmt_log10, lotarea_asmt_log10, price_sales_log10, 
+         saleprice_asmt_log10, saledate_sales) %>% 
+  mutate(usedesc_asmt = fct_lump(usedesc_asmt, n = 5),
+         styledesc_asmt = fct_lump(styledesc_asmt, n = 10),
+         #clean up and condense gradedesc_asmt
+         gradedesc_asmt = str_to_lower(gradedesc_asmt),
+         gradedesc_asmt = case_when(gradedesc_asmt %in% grades_below_average_or_worse ~ "below average + or worse",
+                                    gradedesc_asmt %in% grades_excellent_or_better ~ "excellent - or better",
+                                    gradedesc_asmt %in% grades_standard ~ gradedesc_asmt),
+         gradedesc_asmt = fct_relevel(gradedesc_asmt, c("below average + or worse", "average -", "average", "average +",
+                                                        "good -", "good", "good +",
+                                                        "very good -", "very good", "very good +", "excellent - or better")))
+
+#replace missing character rows with "missing", change character columns to factor
+df <- df %>% 
+  mutate_if(is.character, replace_na, "missing") %>% 
+  mutate_if(is.character, as.factor)
+
+#select response and features
+df <- df %>% 
+  select(munidesc_asmt, usedesc_asmt, styledesc_asmt, conditiondesc_asmt, gradedesc_asmt,
+         finishedlivingarea_asmt_log10, lotarea_asmt_log10, yearblt_asmt, bedrooms_asmt, 
+         fullbaths_asmt, halfbaths_asmt, saleprice_asmt_log10) %>% 
+  na.omit()
+
+#view data
+glimpse(df)
+```
+As shown in the data above, the model uses the following features to predict sale price:
+
+* municipality name
+* primary use of the parcel
+* style of building
+* condition of the structure
+* grade of construction
+* living area in square feet
+* lot area in square feet
+* year the house was built
+* number of bedrooms
+* number of full baths
+* number of half-baths
+
+This code sets up the data for cross validation.
+```{r}
+#create initial split object
+df_split <- initial_split(df, prop = .75)
+
+#extract training dataframe
+training_data_full <- training(df_split)
+
+#extract testing dataframe
+testing_data <- testing(df_split)
+
+#find dimensions of training_data_full and testing_data
+dim(training_data_full)
+dim(testing_data)
+```
+This code divides the data into training and testing sets.
+```{r}
+set.seed(42)
+
+#prep the df with the cross validation partitions
+cv_split <- vfold_cv(training_data_full, v = 5)
+
+cv_data <- cv_split %>% 
+  mutate(
+    #extract train dataframe for each split
+    train = map(splits, ~training(.x)), 
+    #extract validate dataframe for each split
+    validate = map(splits, ~testing(.x))
+  )
+
+#view df
+cv_data
+```
+This builds the model to predict house sale price.
+```{r}
+#build model using the train data for each fold of the cross validation
+cv_models_lm <- cv_data %>% 
+  mutate(model = map(train, ~lm(formula = saleprice_asmt_log10 ~ ., data = .x)))
+cv_models_lm
+#problem with factors split across training/validation
+#https://stats.stackexchange.com/questions/235764/new-factors-levels-not-present-in-training-data
+```
+This is where I begin to calculate metrics to judge how well my model is doing.
+```{r}
+cv_prep_lm <- cv_models_lm %>% 
+  mutate(
+    #extract actual sale price for the records in the validate dataframes
+    validate_actual = map(validate, ~.x$saleprice_asmt_log10),
+    #predict response variable for each validate set using its corresponding model
+    validate_predicted = map2(.x = model, .y = validate, ~predict(.x, .y))
+  )
+
+#View data
+cv_prep_lm
+```
+```{r}
+#calculate fit metrics for each validate fold       
+cv_eval_lm <- cv_prep_lm %>% 
+  mutate(validate_rmse = map2_dbl(model, validate, modelr::rmse),
+         validate_mae = map2_dbl(model, validate, modelr::mae))
+
+cv_eval_lm <- cv_eval_lm %>% 
+  mutate(fit = map(model, ~glance(.x))) %>% 
+  unnest(fit)
+```
+```{r}
+#view data
+cv_eval_lm %>% 
+  select(id, validate_mae, validate_rmse, adj.r.squared)
+```
+Finally, this calculates how well the model did on the validation set.
+```{r}
+#summarize fit metrics on cross-validated dfs
+cv_eval_lm %>% 
+  select(validate_mae, validate_rmse, adj.r.squared) %>% 
+  summarize_all(mean)
+```
+```{r}
+#fit model on full training set
+train_df <- cv_data %>% 
+  unnest(train) %>% 
+  select(-id)
+
+model_train <- lm(formula = saleprice_asmt_log10 ~ ., data = train_df)
+
+model_train %>% 
+  glance()
+```
+
+This is the RMSE on the training set
+```{r}
+#calculate rmse on training set
+rmse(model_train, train_df)
+```
+
+```{r}
+#create model object
+#model <- lm(saleprice_asmt_log10 ~ ., data = train_data_small)
+
+#tidy model
+model_train %>% 
+  tidy() %>% 
+  filter(term != "(Intercept)") %>% 
+  arrange(-estimate)
+
+#10th ward is the base factor for muni_desc term
+model_train %>% 
+  tidy() %>% 
+  filter(str_detect(term, "10th"))
+```
+
+This shows the impact each term of the model has on the response variable. This is for the training data.
+```{r fig.height=12, fig.width=6}
+#visualize estimates for terms
+model_train %>% 
+  tidy() %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(term, estimate)) +
+  geom_hline(yintercept = 0, linetype = 2, color = "red") +
+  geom_point() +
+  coord_flip()
+```
+
+Next, I apply the model to the testing data to see how the model does out-of-sample.
+```{r}
+#create dfs for train_data_small and validate_data
+#train_data_small <- cv_prep_lm %>% 
+#  unnest(train) %>% 
+#  select(-id)
+
+validate_df <- cv_prep_lm %>% 
+  unnest(validate)
+```
+
+This creates the augmented dataframe and plots the actual price vs. the fitted price.
+```{r}
+#visualize model on validate data
+augment_validate <- augment(model_train, newdata = validate_df) %>% 
+  mutate(.resid = saleprice_asmt_log10 - .fitted)
+
+#actual vs. fitted
+cv_prep_lm %>% 
+  unnest(validate_actual, validate_predicted) %>% 
+  ggplot(aes(validate_actual, validate_predicted)) +
+  geom_abline() +
+  stat_density_2d(aes(fill = stat(level)), geom = "polygon") +
+  geom_smooth(method = "lm") +
+  scale_x_continuous(limits = c(2, 7)) +
+  scale_y_continuous(limits = c(2, 7)) +
+  coord_equal() +
+  scale_fill_viridis_c()
+```
+
+This distribution shows that the model overestimates the prices on many houses.
+```{r}
+#distribution of residuals
+augment_validate %>% 
+  ggplot(aes(.resid)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = 2)
+```
+
+This shows that the residuals are correlated with the actual price, which indicates that the model is failing to account for some dynamic in the sale process.
+```{r}
+#sale price vs. residuals
+augment_validate %>% 
+  ggplot(aes(.resid, saleprice_asmt_log10)) +
+  stat_density_2d(aes(fill = stat(level)), geom = "polygon") +
+  geom_vline(xintercept = 0, color = "red", linetype = 2) +
+  scale_fill_viridis_c()
+```
+
+This calculates how well the model predicted sale price on out-of-sample testing data.
+```{r}
+#calculate fit of model on test data
+rmse(model_train, validate_df)
+mae(model_train, validate_df)
+rsquare(model_train, validate_df)
+```
