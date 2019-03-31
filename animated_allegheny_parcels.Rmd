@@ -1,0 +1,119 @@
+---
+title: "Animating Growth of Allegheny County"
+author: "Conor Tompkins"
+date: "March 29, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+In this post I will show how to create animated graphs that illustrate the increase in buildings in Allegheny County.
+
+Set up the environment:
+```{r}
+library(tidyverse)
+library(janitor)
+library(broom)
+library(sf)
+library(scales)
+library(gganimate)
+library(lwgeom)
+
+options(scipen = 999, digits = 4)
+
+theme_set(theme_bw())
+```
+
+This reads in data about the land parcel:
+```{r}
+df <- read_csv("data/parcel_data_allegheny_county.csv", progress = FALSE) %>% 
+  clean_names() %>% 
+  select(-geom)
+```
+
+This reads in the parcel geometry
+```{r}
+file <- "data/shapefiles/AlleghenyCounty_Parcels201812.shx"
+file
+shapefiles <- st_read(file)
+
+nrow(shapefiles)
+```
+
+clean up shapefile geometry
+```{r}
+shapefiles <- shapefiles %>% 
+  st_make_valid() %>% 
+  clean_names()
+```
+
+join shapefiles geometry and data
+```{r}
+parcel_geometry <- shapefiles %>% 
+  left_join(df)
+```
+
+```{r}
+centroids <- parcel_geometry %>% 
+  st_centroid() %>% 
+  st_coordinates() %>% 
+  as_tibble() %>% 
+  clean_names()
+```
+
+```{r}
+centroids %>% 
+  ggplot(aes(x, y)) +
+  geom_point() +
+  theme_void()
+```
+
+```{r}
+df %>% 
+  ggplot(aes(yearblt_asmt)) +
+  geom_density() +
+  geom_rug()
+```
+
+```{r}
+parcel_geometry_cleaned <- bind_cols(parcel_geometry, centroids) %>% 
+  select(pin, x, y, yearblt_asmt) %>%
+  mutate(yearblt_asmt = as.integer(yearblt_asmt)) %>% 
+  filter(!is.na(yearblt_asmt),
+         yearblt_asmt > 1000) %>% 
+  st_set_geometry(NULL)
+```
+
+```{r}
+parcel_geometry_cleaned %>% 
+  select(pin, yearblt_asmt) %>% 
+  arrange(yearblt_asmt) %>% 
+  count(yearblt_asmt) %>% 
+  mutate(cumulative_n = cumsum(n)) %>% 
+  ggplot(aes(yearblt_asmt, cumulative_n)) +
+  geom_line() +
+  geom_point() +
+  transition_reveal(yearblt_asmt)
+```
+
+```{r}
+plot <- parcel_geometry_cleaned %>% 
+  ggplot(aes(x, y, color = yearblt_asmt, group = pin)) +
+  geom_point(alpha = .3, size = .1) +
+  scale_color_viridis_c("Year structure was built") +
+  theme_void() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank()) +
+  labs(title = "Allegheny County land parcels",
+       subtitle = "Year built: {frame_along}",
+       caption = "@conor_tompkins, data from @WPRDC")
+plot <- plot + transition_reveal(yearblt_asmt)
+```
+
+```{r}
+animate(plot, renderer = ffmpeg_renderer(format = "webm"))
+```
