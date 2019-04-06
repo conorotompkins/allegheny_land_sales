@@ -27,11 +27,23 @@ parcels <- parcels %>%
 #  ggplot(aes(Shape_Leng, Shape_Area)) +
 #  geom_point()
 
-plot <- parcel_geometry %>% 
-  select(valid, yearblt_asmt) %>% 
+test <- parcel_geometry %>% 
   filter(valid,
-         !is.na(yearblt_asmt)) %>% 
-  ggplot() +
-  geom_sf()
+         neighdesc_asmt == "PITTSBURGH URBAN")
 
+plot <- test %>% 
+  ggplot() +
+  geom_sf(aes(fill = classdesc_asmt), color = NA)
 plot
+
+df %>% 
+  count(neighdesc_asmt, sort = TRUE) %>% 
+  View()
+
+df %>%
+  count(classdesc_asmt, count = TRUE) %>% 
+  View()
+df %>% 
+  count(neighdesc_asmt, classdesc_asmt, sort = TRUE) %>% 
+  arrange(neighdesc_asmt, desc(n)) %>% 
+  View()
