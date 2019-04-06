@@ -101,7 +101,7 @@ parcel_geometry_cleaned <- bind_cols(parcel_data, centroids) %>%
   select(pin, x, y, yearblt_asmt) %>%
   mutate(yearblt_asmt = as.integer(yearblt_asmt)) %>% 
   filter(!is.na(yearblt_asmt),
-         yearblt_asmt > 1000, yearblt_asmt <= 1900) %>% 
+         yearblt_asmt > 1000) %>% 
   st_set_geometry(NULL)
 ```
 
