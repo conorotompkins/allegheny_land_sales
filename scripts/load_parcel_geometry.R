@@ -2,7 +2,7 @@ library(tidyverse)
 library(sf)
 library(lwgeom)
 
-file <- "data/shapefiles/AlleghenyCounty_Parcels201812.shx"
+file <- "data/shapefiles/AlleghenyCounty_Parcels201904/AlleghenyCounty_Parcels201904.shx"
 file
 parcels <- st_read(file)
 
