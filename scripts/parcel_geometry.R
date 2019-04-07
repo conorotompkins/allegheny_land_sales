@@ -14,11 +14,6 @@ source("scripts/load_parcel_geometry.R")
 parcel_geometry <- parcels %>% 
   left_join(df, by = c("PIN" = "pin"))
 
-nrow(parcels)
-
-parcels <- parcels %>% 
-  mutate(valid = st_is_valid(.))
-
 #parcels %>% 
 #  ggplot(aes(CALCACREAG)) +
 #  geom_density()
