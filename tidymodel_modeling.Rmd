@@ -1,0 +1,134 @@
+---
+title: "tidymodel_modeling"
+author: "Conor Tompkins"
+date: "2/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(tidymodels)
+library(vroom)
+
+options(scipen = 999, digits = 2)
+
+theme_set(theme_bw())
+```
+
+```{r}
+data <- vroom("data/parcel_sales/parcel_sales.csv") %>% 
+  clean_names()
+
+data
+```
+
+```{r}
+glimpse(data)
+```
+
+```{r}
+data %>% 
+  count(saledesc, sort = TRUE)
+
+data %>% 
+  select(saledesc, price) %>% 
+  add_count(saledesc) %>% 
+  mutate(saledesc = fct_reorder(saledesc, n, .desc = TRUE)) %>% 
+  ggplot(aes(price)) +
+    geom_density() +
+    facet_wrap(~saledesc) +
+    scale_x_log10()
+```
+
+```{r}
+data %>% 
+  filter(saledesc == "VALID SALE") %>% 
+    ggplot(aes(price)) +
+    geom_density() +
+    facet_wrap(~saledesc,
+               scales = "free") +
+    scale_x_log10()
+```
+
+```{r}
+df <- data %>% 
+  filter(propertystate == "PA",
+         saledesc == "VALID SALE") %>% 
+  select(price, schooldesc, saledate) %>% 
+  mutate(sale_year = year(saledate),
+         sale_month = month(saledate, label = TRUE)) %>% 
+  select(-saledate) %>%
+  filter(price > 100) %>% 
+  drop_na()
+```
+
+```{r}
+set.seed(4595)
+data_split <- initial_split(df, strata = "price", p = 0.75)
+
+df_train <- training(data_split)
+df_test  <- testing(data_split)
+```
+
+```{r}
+rf_defaults <- rand_forest(mode = "regression")
+rf_defaults
+```
+
+```{r}
+preds <- c("schooldesc", "sale_year", "sale_month")
+
+rf_fit <- rf_defaults %>%
+  set_engine("ranger") %>%
+  fit(log10(price) ~ schooldesc + sale_year + sale_month,
+      data = df_train)
+
+rf_fit
+```
+
+```{r}
+test_results <- df_test %>%
+  select(price) %>%
+  mutate(price = log10(price)) %>%
+  bind_cols(
+    predict(rf_fit, new_data = df_test)
+  )
+test_results
+```
+
+```{r}
+test_results %>%
+  metrics(truth = price, estimate = .pred) 
+```
+
+```{r}
+norm_recipe <- 
+  recipe(
+    price ~ schooldesc + sale_year + sale_month, 
+    data = df_train
+  ) %>%
+  step_other(schooldesc) %>% 
+  step_dummy(all_nominal()) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors()) %>%
+  step_log(price, base = 10) %>% 
+  # estimate the means and standard deviations
+  prep(training = df_train, retain = TRUE)
+
+norm_recipe
+```
+
+```{r}
+glmn_fit <- linear_reg(penalty = 0.001, mixture = 0.5) %>% 
+  set_engine("glmnet") %>%
+  fit(price ~ ., data = juice(norm_recipe))
+glmn_fit
+```
